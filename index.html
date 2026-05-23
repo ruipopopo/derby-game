@@ -1,10 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+  <style>
+    body { background-color: #f4f6f9; font-family: 'Helvetica Neue', Arial, sans-serif; }
+    .main-container { max-width: 800px; margin: 0 auto; padding: 20px; }
+    .tab-content { display: none; }
+    .tab-content.is-active { display: block; }
+    .odds-card { background: #fff; padding: 10px; margin-bottom: 5px; border-left: 5px solid #3273dc; display: flex; justify-content: space-between; }
+    .hero.is-info { background: linear-gradient(135deg, #209cee, #114e7a); }
+  </style>
+</head>
+<body>
+
+<div class="main-container">
+  <!-- ヘッダー部 -->
+  <section class="hero is-info is-small is-bold mb-4 rounded">
+    <div class="hero-body">
+      <h1 class="title">🎯 優先順位予想競馬ポータル</h1>
+      <p class="subtitle is-6">現在のステータス: <span id="current-status-tag" class="tag is-warning">読み込み中...</span></p>
+      <div id="user-info-bar" class="is-size-6 has-text-weight-bold"></div>
+    </div>
+  </section>
+
+  <!-- ナビゲーションタブ -->
+  <div class="tabs is-boxed is-centered">
+    <ul>
+      <li id="tab-link-player-select" class="is-active"><a onclick="switchTab('player-select')">👤 ログイン</a></li>
+      <li id="tab-link-host"><a onclick="switchTab('host')">👑 ホスト</a></li>
+      <li id="tab-link-respondent"><a onclick="switchTab('respondent')">📝 回答入力</a></li>
+      <li id="tab-link-bet"><a onclick="switchTab('bet')">🐎 予想投票</a></li>
+      <li id="tab-link-info"><a onclick="switchTab('info')">📊 オッズ・情報</a></li>
+      <li id="tab-link-result"><a onclick="switchTab('result')">🏆 結果発表</a></li>
+    </ul>
+  </div>
+
+  <!-- 1. プレイヤー情報入力画面 -->
+  <div id="tab-player-select" class="tab-content is-active card p-5">
+    <h2 class="title is-4">プレイヤー名を選択</h2>
+    <div class="field">
+      <label class="label">あなたの名前</label>
+      <div class="control">
+        <div class="select is-fullwidth">
+          <select id="player-dropdown" onchange="onUserSelect()">
+            <option value="">-- 選択してください --</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <article class="message is-info">
+      <div class="message-body is-size-6">
+        名前を選択すると、権限に応じて各画面が解放されます。
+      </div>
+    </article>
+  </div>
+
+  <!-- 2. ホスト用画面 -->
+  <div id="tab-host" class="tab-content card p-5">
+    <h2 class="title is-4">👑 ホスト管理パネル</h2>
+    <div class="field">
+      <label class="label">お題（質問）</label>
+      <div class="control"><input id="host-theme" class="input" type="text" placeholder="例：一番大切にしたい人生の価値観は？"></div>
+    </div>
+    <label class="label">選択肢（6つ入力してください）</label>
+    <div class="columns is-multiline">
+      <div class="column is-6"><input id="opt-0" class="input" type="text" placeholder="選択肢 1"></div>
+      <div class="column is-6"><input id="opt-1" class="input" type="text" placeholder="選択肢 2"></div>
+      <div class="column is-6"><input id="opt-2" class="input" type="text" placeholder="選択肢 3"></div>
+      <div class="column is-6"><input id="opt-3" class="input" type="text" placeholder="選択肢 4"></div>
+      <div class="column is-6"><input id="opt-4" class="input" type="text" placeholder="選択肢 5"></div>
+      <div class="column is-6"><input id="opt-5" class="input" type="text" placeholder="選択肢 6"></div>
+    </div>
+    <div class="field">
+      <label class="label">本日の回答ターゲット（プレイヤー）</label>
+      <div class="control">
+        <div class="select is-fullwidth"><select id="host-respondent-select"></select></div>
+      </div>
+    </div>
+    <div class="buttons">
+      <button class="button is-primary is-fullwidth" onclick="hostAction('setup')">🚀 お題・ターゲットを登録してゲーム開始</button>
+      <button class="button is-danger is-fullwidth" onclick="hostAction('lock')">🔒 予想受付を締め切る</button>
+      <button class="button is-success is-fullwidth" onclick="hostAction('payout')">💰 回答照合＆ポイント清算</button>
+      <button class="button is-light is-fullwidth" onclick="hostAction('next')">🔄 次のゲームの準備(リセット)</button>
+    </div>
+  </div>
+
+  <!-- 3. 回答入力画面 -->
+  <div id="tab-respondent" class="tab-content card p-5">
+    <h2 class="title is-4">📝 あなたの優先順位を入力</h2>
+    <p class="subtitle is-6 has-text-danger">※お題に対して自分が思う順位を1位〜6位まで重複なく選んでください。</p>
+    <div id="respondent-theme-box" class="notification is-light font-weight-bold">お題がまだ設定されていません。</div>
+    <div id="rank-selectors">
+      <!-- JavaScriptで動的生成 -->
+    </div>
+    <button class="button is-link is-fullwidth mt-4" onclick="submitRespondentAnswer()">📤 順位回答を送信</button>
+  </div>
+
+  <!-- 4. 予想入力画面 -->
+  <div id="tab-bet" class="tab-content card p-5">
+    <h2 class="title is-4">🐎 予想ベットシステム</h2>
+    <div id="bet-theme-box" class="notification is-light"></div>
+    
+    <div class="field">
+      <label class="label">賭け方（式別）</label>
+      <div class="control">
+        <div class="select is-fullwidth">
+          <select id="bet-type-select" onchange="adjustBetInputs()">
+            <option value="単勝">① 単勝 (1位を完全的中)</option>
+            <option value="複勝">② 複勝 (選んだ1つが1位か2位に入れば的中)</option>
+            <option value="馬連">③ 馬連 (1位2位のコンビ・順不同)</option>
+            <option value="3連複">④ 3連複 (1位〜3位の3つ・順不同)</option>
+            <option value="3連単">⑤ 3連単 (1位・2位・3位を完全順位的中)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="box has-background-white-ter">
+      <label class="label">予想ターゲット選択</label>
+      <div id="bet-choice-selectors" class="columns is-multiline">
+        <!-- 動的にコンボボックスを生成 -->
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="label">賭け金 (pt)</label>
+      <div class="control">
+        <input id="bet-amount" class="input" type="number" value="100" min="1">
+      </div>
+    </div>
+    <button class="button is-warning is-fullwidth has-text-weight-bold" onclick="placePlayerBet()">🎲 予想を確定してベットする</button>
+  </div>
+
+  <!-- 5. 情報表示用画面 -->
+  <div id="tab-info" class="tab-content card p-5">
+    <h2 class="title is-4">📊 リアルタイム・オッズボード</h2>
+    <div id="info-theme-box" class="notification is-info is-light"></div>
+    <div class="tabs is-small is-toggle is-fullwidth">
+      <ul id="odds-subtabs">
+        <li id="subtab-単勝" class="is-active"><a onclick="switchOddsSubTab('単勝')">単勝</a></li>
+        <li id="subtab-複勝"><a onclick="switchOddsSubTab('複勝')">複勝</a></li>
+        <li id="subtab-馬連"><a onclick="switchOddsSubTab('馬連')">馬連</a></li>
+        <li id="subtab-3連複"><a onclick="switchOddsSubTab('3連複')">3連複</a></li>
+        <li id="subtab-3連単"><a onclick="switchOddsSubTab('3連単')">3連単</a></li>
+      </ul>
+    </div>
+    <div id="odds-display-container" style="max-height: 400px; overflow-y: auto;">
+      <!-- オッズがここにリアルタイム描画される -->
+    </div>
+  </div>
+
+  <!-- 6. 結果発表画面 -->
+  <div id="tab-result" class="tab-content card p-5">
+    <div class="has-text-centered">
+      <h2 class="title is-2 has-text-success">🏆 最終結果発表</h2>
+    </div>
+    <hr>
+    <div class="box">
+      <h3 class="title is-5">🎯 正解の優先順位</h3>
+      <ol id="result-answer-list" type="1" class="ml-5">
+        <!-- 1位~6位の結果 -->
+      </ol>
+    </div>
+    <div class="box">
+      <h3 class="title is-5">💰 全員の現在の保有ポイント</h3>
+      <table class="table is-fullwidth is-striped">
+        <thead>
+          <tr><th>プレイヤー</th><th>持ち点</th><th>役割</th></tr>
+        </thead>
+        <tbody id="result-points-body">
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <script>
   // ==========================================
   // 【最重要】ここにGASでデプロイした「ウェブアプリのURL」を貼り付けてください！
   // ==========================================
   const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyD5lgxBRH32NlIjqvKjzLAbKA1uDlXCRbRwaRKI2IQrkvXDDmsvRe7xImXeYaLA8Qr/exec";
 
-  // グローバル変数
   let currentUser = "";
   let cachedState = null;
   let activeOddsTab = "単勝";
@@ -14,10 +191,8 @@
     try {
       const response = await fetch(GAS_WEB_APP_URL, {
         method: "POST",
-        mode: "cors", // クロスドメイン通信を許可
-        headers: {
-          "Content-Type": "text/plain" // GASの仕様上、実質text/plainで送るのが安全です
-        },
+        mode: "cors",
+        headers: { "Content-Type": "text/plain" },
         body: JSON.stringify(payload)
       });
       return await response.json();
@@ -28,7 +203,6 @@
 
   // ページロード時の処理
   window.onload = function() {
-    // 3秒おきに状態をポーリング（リアルタイム同期）
     setInterval(fetchGameState, 3000);
     fetchGameState();
   };
@@ -51,7 +225,7 @@
     document.getElementById('tab-link-' + tabId).classList.add('is-active');
   }
 
-  // データの定期取得 (fetch版)
+  // データの定期取得
   async function fetchGameState() {
     const state = await callGAS({ action: "getGameState" });
     if (state) {
@@ -122,7 +296,7 @@
     alert(`${currentUser} としてログインしました。`);
   }
 
-  // ホストのアクション処理 (fetch版)
+  // ホストのアクション処理
   async function hostAction(actionType) {
     if(actionType === 'setup') {
       const theme = document.getElementById("host-theme").value;
@@ -155,7 +329,7 @@
     }
   }
 
-  // 回答ターゲット：順位提出 (fetch版)
+  // 回答ターゲット：順位提出
   async function submitRespondentAnswer() {
     const ranks = [];
     for(let i=0; i<6; i++) {
@@ -195,7 +369,7 @@
     }
   }
 
-  // プレイヤー：ベット送信 (fetch版)
+  // プレイヤー：ベット送信
   async function placePlayerBet() {
     if(cachedState.status !== "BETTING") {
       alert("現在は投票時間外です。");
@@ -250,7 +424,7 @@
       const choiceNames = key.split(",").map(idx => state.gameData.choices[Number(idx)]).join(" - ");
       const val = typeOdds[key];
       container.innerHTML += `
-        <div class="odds-card d-flex justify-content-between">
+        <div class="odds-card">
           <div><strong>[${activeOddsTab}]</strong> ${choiceNames}</div>
           <div class="has-text-danger has-text-weight-bold">倍率: ${val.toFixed(1)} 倍</div>
         </div>
@@ -258,3 +432,5 @@
     }
   }
 </script>
+</body>
+</html>
