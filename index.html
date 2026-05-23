@@ -1,0 +1,260 @@
+<script>
+  // ==========================================
+  // 【最重要】ここにGASでデプロイした「ウェブアプリのURL」を貼り付けてください！
+  // ==========================================
+  const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyD5lgxBRH32NlIjqvKjzLAbKA1uDlXCRbRwaRKI2IQrkvXDDmsvRe7xImXeYaLA8Qr/exec";
+
+  // グローバル変数
+  let currentUser = "";
+  let cachedState = null;
+  let activeOddsTab = "単勝";
+
+  // GASへの共通fetch関数 (POST通信)
+  async function callGAS(payload) {
+    try {
+      const response = await fetch(GAS_WEB_APP_URL, {
+        method: "POST",
+        mode: "cors", // クロスドメイン通信を許可
+        headers: {
+          "Content-Type": "text/plain" // GASの仕様上、実質text/plainで送るのが安全です
+        },
+        body: JSON.stringify(payload)
+      });
+      return await response.json();
+    } catch (error) {
+      console.error("GAS通信エラー:", error);
+    }
+  }
+
+  // ページロード時の処理
+  window.onload = function() {
+    // 3秒おきに状態をポーリング（リアルタイム同期）
+    setInterval(fetchGameState, 3000);
+    fetchGameState();
+  };
+
+  // タブ切り替えロジック
+  function switchTab(tabId) {
+    if(!currentUser && tabId !== 'player-select') {
+      alert("先にログイン画面からプレイヤーを選択してください。");
+      return;
+    }
+    if(cachedState) {
+      if(tabId === 'host' && currentUser !== 'ホスト') { alert("ホスト専用画面です"); return; }
+      if(tabId === 'respondent' && currentUser !== cachedState.respondent) { alert("今回の回答ターゲット専用画面です"); return; }
+    }
+
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('is-active'));
+    document.querySelectorAll('.tabs ul li').forEach(el => el.classList.remove('is-active'));
+    
+    document.getElementById('tab-' + tabId).classList.add('is-active');
+    document.getElementById('tab-link-' + tabId).classList.add('is-active');
+  }
+
+  // データの定期取得 (fetch版)
+  async function fetchGameState() {
+    const state = await callGAS({ action: "getGameState" });
+    if (state) {
+      cachedState = state;
+      updateUI(state);
+    }
+  }
+
+  // UI全体の更新
+  function updateUI(state) {
+    const statusTag = document.getElementById("current-status-tag");
+    statusTag.innerText = state.status;
+    
+    const pSelect = document.getElementById("player-dropdown");
+    if(pSelect.options.length <= 1) {
+      const hostSelect = document.getElementById("host-respondent-select");
+      state.players.forEach(p => {
+        pSelect.options.add(new Option(p.name, p.name));
+        if(p.name !== "ホスト") {
+          hostSelect.options.add(new Option(p.name, p.name));
+        }
+      });
+    }
+
+    const themeText = state.gameData.theme ? `【お題】${state.gameData.theme} (回答者: ${state.respondent})` : "お題はまだ設定されていません。";
+    document.getElementById("respondent-theme-box").innerText = themeText;
+    document.getElementById("bet-theme-box").innerText = themeText;
+    document.getElementById("info-theme-box").innerText = themeText;
+
+    if(currentUser) {
+      const myData = state.players.find(p => p.name === currentUser);
+      document.getElementById("user-info-bar").innerHTML = `👤 ログイン中: <span class='has-text-danger'>${currentUser}</span> | 💰 所持ポイント: <span class='has-text-success'>${myData ? myData.points : 0} pt</span>`;
+    }
+
+    const rankSelectors = document.getElementById("rank-selectors");
+    if(rankSelectors.children.length === 0 && state.gameData.choices.length > 0) {
+      rankSelectors.innerHTML = "";
+      for(let i=0; i<6; i++) {
+        let html = `<div class='field'><label class='label'>${i+1}位の選択肢</label><div class='control'><div class='select is-fullwidth'><select id='resp-rank-${i}'>`;
+        state.gameData.choices.forEach((c, idx) => {
+          html += `<option value='${idx}'>${c}</option>`;
+        });
+        html += `</select></div></div></div>`;
+        rankSelectors.innerHTML += html;
+      }
+    }
+
+    adjustBetInputs();
+    renderOddsBoard(state);
+
+    if(state.status === "RESULT") {
+      const ansList = document.getElementById("result-answer-list");
+      ansList.innerHTML = "";
+      state.answer.forEach(idx => {
+        ansList.innerHTML += `<li class='has-text-weight-bold is-size-5'>${state.gameData.choices[idx]}</li>`;
+      });
+
+      const pointsBody = document.getElementById("result-points-body");
+      pointsBody.innerHTML = "";
+      state.players.forEach(p => {
+        pointsBody.innerHTML += `<tr><td>${p.name}</td><td><strong>${p.points} pt</strong></td><td>${p.role}</td></tr>`;
+      });
+    }
+  }
+
+  function onUserSelect() {
+    currentUser = document.getElementById("player-dropdown").value;
+    alert(`${currentUser} としてログインしました。`);
+  }
+
+  // ホストのアクション処理 (fetch版)
+  async function hostAction(actionType) {
+    if(actionType === 'setup') {
+      const theme = document.getElementById("host-theme").value;
+      const resp = document.getElementById("host-respondent-select").value;
+      const choices = [];
+      for(let i=0; i<6; i++) choices.push(document.getElementById(`opt-${i}`).value);
+      
+      document.getElementById("rank-selectors").innerHTML = ""; 
+      
+      const res = await callGAS({ action: "setupGame", theme: theme, choices: choices, respondent: resp });
+      if(res) { alert(res.message); fetchGameState(); }
+      
+    } else if (actionType === 'lock') {
+      const res = await callGAS({ action: "lockBetting" });
+      if(res) { alert(res.message); fetchGameState(); }
+
+    } else if (actionType === 'payout') {
+      const res = await callGAS({ action: "EthicsAndPayout" });
+      if(res) {
+        alert(res.message);
+        switchTab('result');
+        fetchGameState();
+      }
+    } else if (actionType === 'next') {
+      const res = await callGAS({ action: "nextGame" });
+      if(res) {
+        alert("次のゲームを開始します。");
+        location.reload();
+      }
+    }
+  }
+
+  // 回答ターゲット：順位提出 (fetch版)
+  async function submitRespondentAnswer() {
+    const ranks = [];
+    for(let i=0; i<6; i++) {
+      ranks.push(Number(document.getElementById(`resp-rank-${i}`).value));
+    }
+    if(new Set(ranks).size !== ranks.length) {
+      alert("順位に重複があります！すべて異なる選択肢を選んでください。");
+      return;
+    }
+    const res = await callGAS({ action: "submitAnswer", ranks: ranks });
+    if(res) alert(res.message);
+  }
+
+  function adjustBetInputs() {
+    if(!cachedState || cachedState.gameData.choices.length === 0) return;
+    const type = document.getElementById("bet-type-select").value;
+    const container = document.getElementById("bet-choice-selectors");
+    
+    let requiredSelects = 1;
+    if(type === "馬連") requiredSelects = 2;
+    if(type === "3連複" || type === "3連単") requiredSelects = 3;
+    
+    if(container.children.length === requiredSelects) return; 
+    
+    container.innerHTML = "";
+    for(let i=0; i<requiredSelects; i++) {
+      let labelText = `${i+1}つ目の選択`;
+      if(type === "3連単") labelText = `${i+1}位の予想`;
+      if(type === "単勝") labelText = "1位の予想";
+      
+      let html = `<div class='column'><label class='label is-small'>${labelText}</label><div class='select is-small is-fullwidth'><select id='bet-sel-${i}'>`;
+      cachedState.gameData.choices.forEach((c, idx) => {
+        html += `<option value='${idx}'>${c}</option>`;
+      });
+      html += `</select></div></div>`;
+      container.innerHTML += html;
+    }
+  }
+
+  // プレイヤー：ベット送信 (fetch版)
+  async function placePlayerBet() {
+    if(cachedState.status !== "BETTING") {
+      alert("現在は投票時間外です。");
+      return;
+    }
+    const type = document.getElementById("bet-type-select").value;
+    const amount = Number(document.getElementById("bet-amount").value);
+    
+    const elements = document.querySelectorAll("[id^='bet-sel-']");
+    const choices = [];
+    elements.forEach(el => choices.push(Number(el.value)));
+    
+    if(new Set(choices).size !== choices.length) {
+      alert("同じ選択肢を複数選ぶことはできません。");
+      return;
+    }
+    
+    if(type === "馬連" || type === "3連複") {
+      choices.sort((a, b) => a - b);
+    }
+    
+    const choicesStr = choices.join(",");
+    
+    const res = await callGAS({
+      action: "placeBet",
+      playerName: currentUser,
+      betType: type,
+      choicesStr: choicesStr,
+      amount: amount
+    });
+    if(res) { alert(res.message); fetchGameState(); }
+  }
+
+  function switchOddsSubTab(tabName) {
+    activeOddsTab = tabName;
+    document.querySelectorAll("#odds-subtabs li").forEach(el => el.classList.remove('is-active'));
+    document.getElementById("subtab-" + tabName).classList.add('is-active');
+    if(cachedState) renderOddsBoard(cachedState);
+  }
+
+  function renderOddsBoard(state) {
+    const container = document.getElementById("odds-display-container");
+    container.innerHTML = "";
+    
+    const typeOdds = state.odds[activeOddsTab];
+    if(!typeOdds || Object.keys(typeOdds).length === 0) {
+      container.innerHTML = "<p class='has-text-centered p-5 has-text-grey'>この式別への投票はまだありません。</p>";
+      return;
+    }
+    
+    for(let key in typeOdds) {
+      const choiceNames = key.split(",").map(idx => state.gameData.choices[Number(idx)]).join(" - ");
+      const val = typeOdds[key];
+      container.innerHTML += `
+        <div class="odds-card d-flex justify-content-between">
+          <div><strong>[${activeOddsTab}]</strong> ${choiceNames}</div>
+          <div class="has-text-danger has-text-weight-bold">倍率: ${val.toFixed(1)} 倍</div>
+        </div>
+      `;
+    }
+  }
+</script>
