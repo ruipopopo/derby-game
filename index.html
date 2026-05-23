@@ -10,6 +10,10 @@
     .tab-content.is-active { display: block; }
     .odds-card { background: #fff; padding: 10px; margin-bottom: 5px; border-left: 5px solid #3273dc; display: flex; justify-content: space-between; }
     .hero.is-info { background: linear-gradient(135deg, #209cee, #114e7a); }
+    /* 選択肢リスト用の簡易スタイル */
+    .choice-list-box { background-color: #fff; border-left: 4px solid #ffdd57; padding: 12px; margin-bottom: 15px; border-radius: 4px; }
+    .choice-item-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin-top: 5px; }
+    .choice-item { background: #f9f9f9; padding: 6px 12px; border-radius: 4px; border: 1px solid #edeec4; font-size: 0.95rem; }
   </style>
 </head>
 <body>
@@ -85,7 +89,13 @@
   <div id="tab-respondent" class="tab-content card p-5">
     <h2 class="title is-4">📝 あなたのTOP3を選択</h2>
     <p class="subtitle is-6 has-text-danger">※お題に対して、あなたの【1位〜3位】までを選んでください（重複不可）。</p>
-    <div id="respondent-theme-box" class="notification is-light font-weight-bold">お題がまだ設定されていません。</div>
+    <div id="respondent-theme-box" class="notification is-light font-weight-bold mb-3">お題がまだ設定されていません。</div>
+    
+    <div id="respondent-choices-list" class="choice-list-box" style="display:none;">
+      <label class="has-text-weight-bold is-size-6">📋 現在の選択肢一覧</label>
+      <div class="choice-item-grid" id="respondent-choices-grid"></div>
+    </div>
+
     <div id="rank-selectors">
       </div>
     <button class="button is-link is-fullwidth mt-4" onclick="submitRespondentAnswer()">📤 順位回答を送信</button>
@@ -93,8 +103,13 @@
 
   <div id="tab-bet" class="tab-content card p-5">
     <h2 class="title is-4">🐎 予想ベットシステム</h2>
-    <div id="bet-theme-box" class="notification is-light"></div>
+    <div id="bet-theme-box" class="notification is-light mb-3"></div>
     
+    <div id="bet-choices-list" class="choice-list-box" style="display:none;">
+      <label class="has-text-weight-bold is-size-6">📋 現在の選択肢一覧</label>
+      <div class="choice-item-grid" id="bet-choices-grid"></div>
+    </div>
+
     <div class="field">
       <label class="label">賭け方（式別）</label>
       <div class="control">
@@ -258,9 +273,29 @@
     document.getElementById("bet-theme-box").innerText = themeText;
     document.getElementById("info-theme-box").innerText = themeText;
 
+    // 【追加】「回答入力」と「予想投票」の画面に選択肢を一覧表示する処理
+    const respListEl = document.getElementById("respondent-choices-list");
+    const betListEl = document.getElementById("bet-choices-list");
+    const respGridEl = document.getElementById("respondent-choices-grid");
+    const betGridEl = document.getElementById("bet-choices-grid");
+
+    if (state.gameData.choices && state.gameData.choices.length > 0) {
+      let gridHtml = "";
+      state.gameData.choices.forEach((c, idx) => {
+        gridHtml += `<div class="choice-item"><strong>${idx + 1}.</strong> ${c}</div>`;
+      });
+      respGridEl.innerHTML = gridHtml;
+      betGridEl.innerHTML = gridHtml;
+      respListEl.style.display = "block";
+      betListEl.style.display = "block";
+    } else {
+      respListEl.style.display = "none";
+      betListEl.style.display = "none";
+    }
+
     if(currentUser) {
       const myData = state.players.find(p => p.name === currentUser);
-      document.getElementById("user-info-bar").innerHTML = `👤 ログイン中: <span class='has-text-danger'>${currentUser}</span> | 💰 所限ポイント: <span class='has-text-success'>${myData ? myData.points : 0} pt</span>`;
+      document.getElementById("user-info-bar").innerHTML = `👤 ログイン中: <span class='has-text-danger'>${currentUser}</span> | 💰 所持ポイント: <span class='has-text-success'>${myData ? myData.points : 0} pt</span>`;
       
       const activeTabEl = document.querySelector('.tab-content.is-active');
       if(activeTabEl && activeTabEl.id === 'tab-bet' && currentUser === state.respondent) {
@@ -269,14 +304,13 @@
       }
     }
 
-    // 【修正】セレクトボックスを「1位~3位」までの3つに変更
     const rankSelectors = document.getElementById("rank-selectors");
     if(rankSelectors.children.length === 0 && state.gameData.choices.length > 0) {
       rankSelectors.innerHTML = "";
       for(let i=0; i<3; i++) {
         let html = `<div class='field'><label class='label'>${i+1}位の選択肢</label><div class='control'><div class='select is-fullwidth'><select id='resp-rank-${i}'>`;
         state.gameData.choices.forEach((c, idx) => {
-          html += `<option value='${idx}'>${c}</option>`;
+          html += `<option value='${idx}'>${idx+1}. ${c}</option>`;
         });
         html += `</select></div></div></div>`;
         rankSelectors.innerHTML += html;
@@ -289,7 +323,7 @@
     if(state.status === "RESULT") {
       const ansList = document.getElementById("result-answer-list");
       ansList.innerHTML = "";
-      state.answer.forEach(idx => {
+      state.answer.forEach((idx, i) => {
         ansList.innerHTML += `<li class='has-text-weight-bold is-size-5'>${state.gameData.choices[idx]}</li>`;
       });
 
@@ -298,7 +332,10 @@
       if(state.bets && state.bets.length > 0) {
         state.bets.forEach(b => {
           if(b.player === "player") return; 
-          const choiceNames = b.choices.split(",").map(idx => state.gameData.choices[Number(idx)] || "未特定").join(" ➔ ");
+          const choiceNames = b.choices.split(",").map(idx => {
+            const num = Number(idx) + 1;
+            return `${num}.${state.gameData.choices[Number(idx)] || "未特定"}`;
+          }).join(" ➔ ");
           
           let checkWinFront = "❌ 不的中";
           let rowClass = "";
@@ -381,7 +418,6 @@
     }
   }
 
-  // 【修正】上位3つだけを送信するようにバリデーション変更
   async function submitRespondentAnswer() {
     const ranks = [];
     for(let i=0; i<3; i++) {
@@ -414,7 +450,7 @@
       
       let html = `<div class='column'><label class='label is-small'>${labelText}</label><div class='select is-small is-fullwidth'><select id='bet-sel-${i}'>`;
       cachedState.gameData.choices.forEach((c, idx) => {
-        html += `<option value='${idx}'>${c}</option>`;
+        html += `<option value='${idx}'>${idx+1}. ${c}</option>`;
       });
       html += `</select></div></div>`;
       container.innerHTML += html;
@@ -472,8 +508,11 @@
     }
     
     for(let key in typeOdds) {
-      const choiceNames = key.split(",").map(idx => state.gameData.choices[Number(idx)]).join(" - ");
-      const val = typeOdds[key];
+      const choiceNames = key.split(",").map(idx => {
+        const num = Number(idx) + 1;
+        return `${num}.${state.gameData.choices[Number(idx)]}`;
+      }).join(" - ");
+      var val = typeOdds[key];
       container.innerHTML += `
         <div class="odds-card">
           <div><strong>[${activeOddsTab}]</strong> ${choiceNames}</div>
